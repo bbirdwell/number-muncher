@@ -163,18 +163,44 @@ nearly the same thing because each delight was cheap.
    distractors survive the 2a filter, fill the remainder with random
    non-matching numbers in the same value range. The board must always
    satisfy decision 1's guarantees regardless of selection.
+   2c. (eng review 2A) Shared helper: `bracketingFacts(table, n)` →
+   `{below: {k, product}, above: {k, product}}` is ONE pure function in
+   game.js consumed by BOTH wrong-munch explanations and near-miss distractor
+   generation — two hand-rolled versions of "nearest products" would drift
+   and the explanation could cite facts the seeder considers out of range.
 3. Game logic (`game.js`) is pure functions/state machine with zero DOM access
    so it is unit-testable and mode rules are pluggable (`isMatch(rule, n)`).
-   Test runner: `node --test` against the pure modules (game.js, seeding,
-   storage serialization). Module format: plain script tags in dependency
+   Test runner: `node --test`. Module format: plain script tags in dependency
    order attaching to `globalThis`, with a guarded CommonJS export shim
    (`if (typeof module !== 'undefined') module.exports = ...`) on the pure
    modules — ES modules are blocked over `file://` in Chrome, and this keeps
    BOTH "double-click index.html" and `node --test` working with no build
    step. Fallback distribution before GitHub Pages is live (gh auth pending):
    `python3 -m http.server` on the LAN reaches the tablet.
+   3a. (eng review 1A) A minimal committed `package.json` pins
+   `"type": "commonjs"` and `"scripts": {"test": "node --test"}` — the shim
+   depends on Node's no-package.json CommonJS default, and a future
+   `npm init` or `"type": "module"` would silently flip every `.js` to ESM
+   and break the suite. No dependencies are ever declared in it.
+   3b. (eng review 3A) Enumerated unit-test targets — ALL are written during
+   the build, not deferred: (1) `isMatch` per rule; (2) seedBoard invariants
+   over 1000 seeded-RNG boards (≥6 correct, ≥40% incorrect, zero 2a
+   violations, 2b fallback under all-tables selection); (3) munch scoring,
+   lives, extra-life-at-1000; (4) Troggle step, spawn placement (≥3
+   Manhattan, inward heading), edge-walk-off respawn, swap-through contact;
+   (5) blitz lifecycle: −5s penalty, timer-pause-during-explain,
+   reseed-on-exhaustion, selection-set high-score keys; (6) rolling-window
+   star calculation incl. single-table-only accrual; (7) `bracketingFacts`
+   explanation math; (8) storage round-trip; (9) corrupt-JSON → defaults;
+   (10) state-machine transitions: wrong-munch→EXPLAIN→resume,
+   lives=0→GAME_OVER, blitz t=0→BLITZ_RESULTS; (11) session-accuracy
+   aggregation (multi-select display-only rule); (12) pause/invuln
+   semantics: invulnerability on every resume, no Troggle tick while paused.
 4. Troggle movement runs on a tick timer (~700ms/step at level 1) independent
-   of player input; grid re-render is diff-free full redraw (30 cells, cheap).
+   of player input. Rendering uses 30 STABLE cell nodes created once; renders
+   mutate classes/text only — a full DOM rebuild would destroy in-flight CSS
+   animations (munch crunch, movement). (Revised per eng review 7A; the
+   earlier "diff-free full redraw" wording is superseded.)
 5. Wrong-munch feedback pauses Troggles while the explanation shows —
    otherwise the kid gets eaten while reading.
 6. Touch targets ≥48px; layout must fit a 768px-wide tablet portrait.
@@ -198,6 +224,65 @@ nearly the same thing because each delight was cheap.
     gate rejected — CC build speed makes build-complete-then-tune cheaper),
     OV-9A tap-to-walk + button-only munch, OV-10A pause safety bundle
     (invuln on every resume, manual pause, explicit explanation dismissal).
+13. (eng 4A) Time ownership: game.js is a pure reducer — (state, event) →
+    state, where events include tick(now). main.js owns the single clock and
+    translates DOM/input into events; it contains no game rules. Pause is a
+    SET of reasons {explanation, manual, hidden}; time advances only when
+    the set is empty (overlapping pauses resolve correctly by construction).
+    Invulnerability and the blitz clock are remaining-ms fields decremented
+    only by unpaused ticks — never wall-clock timestamps or setTimeout.
+    Munching is allowed while invulnerable; invulnerability does not expire
+    while co-located with a Troggle (extends until separation — no
+    death-while-standing-still).
+14. (eng 5A) Module boundaries: game.js is fully self-contained (rules +
+    seeder + reducer + bracketingFacts — imports nothing). storage.js splits
+    pure serialization/rolling-window math (node-tested) from a thin
+    localStorage adapter (localStorage does not exist in Node). seedBoard()
+    and Troggle spawn take an injectable RNG; tests pass a seeded RNG so
+    every invariant failure is reproducible.
+15. (eng 6A) Contact & movement semantics: contact is checked on exactly two
+    events — a Troggle tick entering the Muncher's cell, and a Muncher move
+    whose destination is a Troggle's current cell. (This supersedes the
+    "cell-swap between ticks" phrasing in Accepted Scope, which is
+    unimplementable under asynchronous movement.) Tap-to-walk: BFS
+    orthogonal path, NOT Troggle-aware (dodging stays the player's job),
+    one step per 150ms, a new tap reroutes, any keypress cancels the walk,
+    the path clears on pause/life-loss/board-reseed. The keypress or tap
+    that dismisses an explanation is swallowed — it never falls through to
+    munch or move.
+16. (eng 7A) Numeric edges: the difficulty weight formula's n is capped at
+    12 (weights freeze past level 12 — uncapped, the distribution drifts
+    back toward easy). Blitz timer clamps at 0; if the −5s penalty reaches
+    0, the round ends after the explanation is dismissed. A score award
+    crossing multiple 1000-point boundaries grants one extra life per
+    boundary crossed. The Muncher starts each board at cell (col 2, row 2,
+    0-indexed). Troggles never co-occupy a cell nor spawn onto one another.
+17. (eng 8A) Storage schema: versioned from day one — `{v: 1, tables: {"7":
+    {attempts: [...last 50, ring buffer...], stars, highScores}}, factMisses:
+    {"7x8": n}}`. The rolling window requires the ordered attempt log, not
+    counters. Per-fact miss counts are keyed by the FACT for numbers that
+    are a product of some table 1–12 (56 while practicing 7s → "7x8");
+    wrong munches of non-products (44) count against session accuracy only.
+    Star display uses a HIGH-WATER MARK: stars once earned stay displayed;
+    the rolling window gates EARNING the next star, and current-window
+    accuracy renders as progress toward it — a rolling window that silently
+    revokes a kid's stars is a rage-quit event.
+
+## Build Order (eng 9A)
+
+Seven milestones, each ending green (tests pass, game playable where applicable):
+
+1. **M1** — pure `game.js` (reducer + seeder + rules + bracketingFacts) with
+   the full decision-3b test suite passing under `node --test`.
+2. **M2** — keyboard Classic WITHOUT Troggles: `index.html`, stable-node
+   renderer, input, explanations. A playable game exists from here on.
+3. **M3** — Troggles + contact + the complete pause/invulnerability bundle
+   (decision 13) — the risky timing seam lands as foundation, not retrofit.
+4. **M4** — storage/stars (decision 17) + game-over + celebrations.
+5. **M5** — touch: tap-to-walk + MUNCH button (decision 15).
+6. **M6** — Blitz mode.
+7. **M7** — audio + visual polish + README + GitHub Pages deploy (once
+   `gh auth` is restored).
 
 ## GSTACK REVIEW REPORT
 
@@ -205,15 +290,20 @@ nearly the same thing because each delight was cheap.
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAN | 7 proposals, 6 accepted, 1 deferred |
 | Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAN | 19 issues (3 review + 16 outside voice), all resolved |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
-Outside voice: ran (Claude subagent — Codex CLI install broken, ENOENT on
-native binary), 12 findings; 7 converged with the spec reviewer (fixed), 5
-decided by the user (OV-6A, OV-7A, OV-8B, OV-9A, OV-10A). Adversarial spec
-review: 3 iterations, 24 issues found and fixed, final quality 8.5/10.
+CEO review: adversarial spec loop ran 3 iterations (24 issues fixed, final
+quality 8.5/10) plus a 12-finding outside voice. Eng review: 3 section
+findings (package.json CommonJS pin, shared bracketingFacts helper,
+enumerated 12-target test list) and a 16-finding engineering outside voice
+(time/pause reducer model, module/test boundaries, contact & tap-to-walk
+semantics, stable-node rendering, storage schema + high-water-mark stars,
+7-milestone build order) — every finding user-decided and folded into
+decisions 13–17 and the Build Order section. Outside voices ran as Claude
+subagents both times (Codex CLI install broken on this machine).
 
-**VERDICT:** CEO CLEARED — scope and spec settled; eng review required before /ship.
+**VERDICT:** CEO + ENG CLEARED — ready to implement (build order: M1→M7).
 
 NO UNRESOLVED DECISIONS
