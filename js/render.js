@@ -1,0 +1,317 @@
+/* render.js — DOM rendering. Builds the page ONCE (30 stable cell nodes,
+ * one muncher sprite, troggle sprites — decision 4 revised: renders mutate
+ * classes/text/transforms only, so CSS animations survive).
+ * All user-supplied strings go through textContent (decision 8).
+ */
+(function () {
+  'use strict';
+
+  var NM = globalThis.NM;
+  var els = {};
+  var cellEls = [];
+  var trogEls = [];
+  var lastChomp = 0;
+
+  function el(tag, className, parent, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  function button(className, parent, text) {
+    var b = el('button', className, parent, text);
+    b.type = 'button';
+    return b;
+  }
+
+  // ---------- one-time build ----------
+
+  function init(root, ui) {
+    els.root = root;
+
+    // HUD
+    var hud = el('div', 'hud', root);
+    els.rule = el('div', 'rule-banner', hud, '');
+    var stats = el('div', 'hud-stats', hud);
+    var scoreBox = el('div', 'stat', stats);
+    el('span', 'stat-label', scoreBox, 'Score');
+    els.score = el('span', 'stat-value', scoreBox, '0');
+    var livesBox = el('div', 'stat', stats);
+    el('span', 'stat-label', livesBox, 'Lives');
+    els.lives = el('span', 'stat-value lives', livesBox, '');
+    var timerBox = el('div', 'stat stat-timer', stats);
+    el('span', 'stat-label', timerBox, 'Time');
+    els.timer = el('span', 'stat-value', timerBox, '');
+    var hudButtons = el('div', 'hud-buttons', hud);
+    els.pauseBtn = button('icon-btn', hudButtons, '⏸');
+    els.pauseBtn.setAttribute('aria-label', 'Pause');
+    els.muteBtn = button('icon-btn', hudButtons, '🔊');
+    els.muteBtn.setAttribute('aria-label', 'Sound on or off');
+
+    // Board
+    els.boardWrap = el('div', 'board-wrap', root);
+    els.board = el('div', 'board', els.boardWrap);
+    for (var i = 0; i < NM.CELLS; i++) {
+      var cell = el('button', 'cell', els.board);
+      cell.type = 'button';
+      cell.dataset.cell = String(i);
+      cellEls.push(cell);
+    }
+    els.muncher = el('div', 'muncher', els.board);
+    el('div', 'muncher-eyes', els.muncher);
+    el('div', 'muncher-mouth', els.muncher);
+
+    // Touch munch button
+    els.munchBtn = button('munch-btn', root, 'MUNCH!');
+
+    // Overlays
+    els.overlay = el('div', 'overlay', root);
+    buildTitle(ui);
+    buildCard('explain', 'Oops!', function (card) {
+      els.explainText = el('p', 'explain-text', card, '');
+      els.explainGo = button('primary', card, 'Keep going');
+    });
+    buildCard('levelClear', 'Level clear!', function (card) {
+      els.clearText = el('p', '', card, '');
+      els.nextBtn = button('primary', card, 'Next level');
+    });
+    buildCard('gameOver', 'Game over', function (card) {
+      els.overText = el('p', '', card, '');
+      els.overHigh = el('p', 'highscore-line', card, '');
+      els.againBtn = button('primary', card, 'Play again');
+      els.titleBtn = button('ghost', card, 'Back to start');
+    });
+    buildCard('blitzResults', 'Time!', function (card) {
+      els.blitzText = el('p', '', card, '');
+      els.blitzHigh = el('p', 'highscore-line', card, '');
+      els.blitzAgainBtn = button('primary', card, 'Play again');
+      els.blitzTitleBtn = button('ghost', card, 'Back to start');
+    });
+    buildCard('paused', 'Paused', function (card) {
+      el('p', '', card, 'Take your time.');
+      els.resumeBtn = button('primary', card, 'Keep playing');
+    });
+
+    els.confetti = el('div', 'confetti-layer', root);
+  }
+
+  function buildCard(name, title, fill) {
+    var card = el('div', 'card card-' + name, els.overlay);
+    card.dataset.card = name;
+    el('h2', '', card, title);
+    fill(card);
+    els['card_' + name] = card;
+  }
+
+  function buildTitle(ui) {
+    var card = el('div', 'card card-title', els.overlay);
+    card.dataset.card = 'title';
+    els.titleHeading = el('h1', 'game-title', card, 'Number Muncher');
+    el('p', 'tagline', card, 'Munch the multiples. Dodge the Troggle.');
+
+    var tablesLabel = el('p', 'field-label', card, 'Pick your times tables');
+    tablesLabel.id = 'tables-label';
+    els.tableGrid = el('div', 'table-grid', card);
+    els.tableGrid.setAttribute('role', 'group');
+    els.tableGrid.setAttribute('aria-labelledby', 'tables-label');
+    els.tableBtns = {};
+    for (var t = 2; t <= 12; t++) {
+      var tb = button('table-btn', els.tableGrid, String(t));
+      tb.dataset.table = String(t);
+      var star = el('span', 'table-stars', tb, '');
+      star.dataset.starsFor = String(t);
+      els.tableBtns[t] = tb;
+    }
+    els.starNote = el('p', 'hint', card, 'Stars are earned in single-table games.');
+
+    el('p', 'field-label', card, 'Game');
+    var modeRow = el('div', 'mode-row', card);
+    els.modeClassic = button('mode-btn selected', modeRow, 'Classic');
+    els.modeClassic.dataset.mode = 'classic';
+    el('span', 'mode-hint', els.modeClassic, 'Clear the board, dodge the Troggle');
+    els.modeBlitz = button('mode-btn', modeRow, 'Blitz');
+    els.modeBlitz.dataset.mode = 'blitz';
+    el('span', 'mode-hint', els.modeBlitz, '60 seconds, munch fast!');
+    els.highScoreLine = el('p', 'hint highscore-hint', card, '');
+
+    var settingsRow = el('div', 'settings-row', card);
+    var nameWrap = el('label', 'name-wrap', settingsRow);
+    el('span', 'field-label', nameWrap, 'Your name');
+    els.nameInput = el('input', 'name-input', nameWrap);
+    els.nameInput.maxLength = 20;
+    els.nameInput.placeholder = 'Muncher';
+    var colorWrap = el('div', 'color-wrap', settingsRow);
+    var colorLabel = el('span', 'field-label', colorWrap, 'Muncher color');
+    colorLabel.id = 'color-label';
+    var swatches = el('div', 'swatches', colorWrap);
+    swatches.setAttribute('role', 'group');
+    swatches.setAttribute('aria-labelledby', 'color-label');
+    els.swatches = {};
+    ['green', 'yellow', 'pink', 'blue'].forEach(function (c) {
+      var s = button('swatch swatch-' + c, swatches, '');
+      s.dataset.color = c;
+      s.setAttribute('aria-label', c + ' muncher');
+      els.swatches[c] = s;
+    });
+
+    els.startBtn = button('primary start-btn', card, 'Play!');
+    els.startHint = el('p', 'hint start-hint', card, '');
+    if (ui && ui.isTouch) {
+      el('p', 'hint', card, 'Tap a square to walk there. Tap MUNCH! to eat.');
+    } else {
+      el('p', 'hint', card, 'Arrow keys to move · Space to munch · P to pause');
+    }
+  }
+
+  // ---------- per-frame render ----------
+
+  function positionSprite(node, cell) {
+    var col = NM.cellCol(cell);
+    var row = NM.cellRow(cell);
+    node.style.transform = 'translate(' + (col * 100) + '%, ' + (row * 100) + '%)';
+  }
+
+  function syncTroggleEls(count) {
+    while (trogEls.length < count) {
+      var tr = el('div', 'troggle', els.board);
+      el('div', 'troggle-eyes', tr);
+      trogEls.push(tr);
+    }
+    for (var i = 0; i < trogEls.length; i++) {
+      trogEls[i].classList.toggle('hidden', i >= count);
+    }
+  }
+
+  function starString(n) {
+    var s = '';
+    for (var i = 0; i < n; i++) s += '★';
+    return s;
+  }
+
+  function render(state, data, view) {
+    // HUD
+    els.rule.textContent = 'Multiples of ' + state.rule.tables.join(' or ');
+    els.score.textContent = String(state.score);
+    els.lives.textContent = state.mode === 'classic' ? '♥'.repeat(Math.max(0, state.lives)) : '';
+    els.timer.textContent = state.mode === 'blitz' ? Math.ceil(state.blitzMs / 1000) + 's' : '';
+    els.timer.parentElement.classList.toggle('hidden', state.mode !== 'blitz');
+    els.timer.parentElement.classList.toggle('timer-low', state.mode === 'blitz' && state.blitzMs < 10000);
+    els.lives.parentElement.classList.toggle('hidden', state.mode !== 'classic');
+    els.muteBtn.textContent = data.muted ? '🔇' : '🔊';
+    var inPlay = state.screen === 'playing';
+    els.pauseBtn.classList.toggle('hidden', !inPlay);
+
+    // Board cells
+    for (var i = 0; i < cellEls.length; i++) {
+      var cellState = state.board[i];
+      var node = cellEls[i];
+      if (!cellState) {
+        node.textContent = '';
+        continue;
+      }
+      node.textContent = cellState.munched ? '' : String(cellState.n);
+      node.classList.toggle('munched', cellState.munched);
+      node.classList.toggle('here', inPlay && i === state.muncher.cell);
+    }
+
+    // Sprites
+    els.muncher.classList.toggle('hidden', !inPlay && !state.explain);
+    els.muncher.className = els.muncher.className.replace(/color-\w+/g, '').trim();
+    els.muncher.classList.add('color-' + (data.color || 'green'));
+    positionSprite(els.muncher, state.muncher.cell);
+    els.muncher.classList.toggle('invuln', state.muncher.invulnMs > 0);
+    if (view.chomp !== lastChomp) {
+      lastChomp = view.chomp;
+      els.muncher.classList.remove('chomp');
+      void els.muncher.offsetWidth; // restart CSS animation
+      els.muncher.classList.add('chomp');
+    }
+    syncTroggleEls(inPlay ? state.troggles.length : 0);
+    for (var tIdx = 0; tIdx < state.troggles.length; tIdx++) {
+      positionSprite(trogEls[tIdx], state.troggles[tIdx].cell);
+    }
+
+    // Touch munch button
+    els.munchBtn.classList.toggle('hidden', !(view.isTouch && inPlay));
+
+    // Overlays
+    var activeCard = null;
+    if (state.screen === 'title') activeCard = 'title';
+    else if (state.explain) activeCard = 'explain';
+    else if (state.screen === 'levelClear') activeCard = 'levelClear';
+    else if (state.screen === 'gameOver') activeCard = 'gameOver';
+    else if (state.screen === 'blitzResults') activeCard = 'blitzResults';
+    else if (state.pauseReasons.indexOf('manual') !== -1) activeCard = 'paused';
+    els.overlay.classList.toggle('hidden', !activeCard);
+    ['title', 'explain', 'levelClear', 'gameOver', 'blitzResults', 'paused'].forEach(function (name) {
+      els['card_' + name].classList.toggle('hidden', name !== activeCard);
+    });
+
+    if (activeCard === 'title') renderTitle(state, data, view);
+    if (state.explain) els.explainText.textContent = state.explain.text;
+    if (activeCard === 'levelClear') {
+      els.clearText.textContent = 'Level ' + state.level + ' munched! Score: ' + state.score;
+    }
+    if (activeCard === 'gameOver') {
+      els.overText.textContent = 'Score ' + state.score + ' · Level ' + state.level +
+        ' · ' + sessionAccuracy(state) + '% right';
+      els.overHigh.textContent = view.newHighScore ? 'New high score!' : '';
+    }
+    if (activeCard === 'blitzResults') {
+      els.blitzText.textContent = (data.name ? data.name + ', you' : 'You') +
+        ' munched ' + state.session.correct + ' in 60 seconds — score ' + state.score;
+      els.blitzHigh.textContent = view.newHighScore ? 'New high score!' : '';
+    }
+  }
+
+  function sessionAccuracy(state) {
+    var total = state.session.correct + state.session.wrong;
+    if (!total) return 100;
+    return Math.round((state.session.correct / total) * 100);
+  }
+
+  function renderTitle(state, data, view) {
+    var name = (data.name || '').trim();
+    els.titleHeading.textContent = name ? name + "'s Number Muncher" : 'Number Muncher';
+    if (document.activeElement !== els.nameInput) els.nameInput.value = data.name || '';
+    for (var t = 2; t <= 12; t++) {
+      var selected = view.tables.indexOf(t) !== -1;
+      els.tableBtns[t].classList.toggle('selected', selected);
+      els.tableBtns[t].setAttribute('aria-pressed', selected ? 'true' : 'false');
+      var entry = data.tables[String(t)];
+      var starsNode = els.tableBtns[t].querySelector('[data-stars-for]');
+      starsNode.textContent = entry ? starString(entry.stars) : '';
+    }
+    els.modeClassic.classList.toggle('selected', view.mode === 'classic');
+    els.modeBlitz.classList.toggle('selected', view.mode === 'blitz');
+    Object.keys(els.swatches).forEach(function (c) {
+      els.swatches[c].classList.toggle('selected', (data.color || 'green') === c);
+    });
+    var hs = globalThis.NMStorage.highScoreFor(data, view.tables.length ? view.tables : [7], view.mode);
+    els.highScoreLine.textContent = hs ? 'High score: ' + hs : '';
+    els.startBtn.disabled = view.tables.length === 0;
+    els.startHint.textContent = view.tables.length === 0 ? 'Pick at least one table to play.' : '';
+  }
+
+  // Celebration confetti — capped particle count (perf review note).
+  function confetti() {
+    if (globalThis.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var colors = ['#7CF29C', '#FFD34D', '#FF6B6B', '#7FB8FF', '#F2F1FF'];
+    for (var i = 0; i < 36; i++) {
+      var p = el('span', 'confetti', els.confetti);
+      p.style.left = Math.random() * 100 + '%';
+      p.style.background = colors[i % colors.length];
+      p.style.animationDelay = (Math.random() * 0.4) + 's';
+      p.style.setProperty('--drift', (Math.random() * 2 - 1).toFixed(2));
+      (function (node) {
+        node.addEventListener('animationend', function () { node.remove(); });
+      })(p);
+    }
+  }
+
+  var api = { init: init, render: render, confetti: confetti, els: els, cellEls: cellEls };
+  globalThis.NMRender = api;
+  if (typeof module !== 'undefined') module.exports = api;
+})();
