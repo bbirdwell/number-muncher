@@ -1,0 +1,8 @@
+{
+  "name": "number-muncher",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test"
+  }
+}
