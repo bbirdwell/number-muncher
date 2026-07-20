@@ -531,6 +531,39 @@ button:focus-visible, input:focus-visible, .cell:focus-visible {
   text-underline-offset: 3px;
 }
 
+/* ---------- High scores ---------- */
+
+.scores-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.score-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 12px;
+  background: var(--ink-deep);
+  border: 1px solid var(--cell-edge);
+  border-radius: 10px;
+}
+
+.score-label { font-weight: 800; }
+
+.score-value {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--sun);
+  font-size: 0.9rem;
+}
+
+.scores-btn { opacity: 0.85; }
+
 /* ---------- Confetti ---------- */
 
 .confetti-layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 40; }

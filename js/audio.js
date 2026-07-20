@@ -61,20 +61,45 @@
     src.start(t0);
   }
 
+  // A "brass" note: sawtooth fundamental + quieter octave partial.
+  function brass(freq, startIn, dur, gainPeak) {
+    tone(freq, startIn, dur, 'sawtooth', gainPeak || 0.11);
+    tone(freq * 2, startIn, dur, 'sawtooth', (gainPeak || 0.11) * 0.35);
+  }
+
   var api = {
     unlock: unlock,
     setMuted: setMuted,
-    // the crunch you can feel: noise burst + falling blip
-    crunch: function () { noise(0, 0.09, 0.25); tone(300, 0, 0.08, 'square', 0.12, 140); },
-    buzz: function () { tone(110, 0, 0.28, 'sawtooth', 0.12, 90); },
+    // correct munch: the crunch you can feel + a bright rising major chime
+    crunch: function () {
+      noise(0, 0.09, 0.25);
+      tone(300, 0, 0.08, 'square', 0.1, 140);
+      tone(659, 0.05, 0.09, 'triangle', 0.11);  // E5
+      tone(988, 0.14, 0.16, 'triangle', 0.12);  // B5 — up a fifth: "yes!"
+    },
+    // wrong munch: descending two-tone wah-womp (sad trombone, kid-sized)
+    buzz: function () {
+      tone(311, 0, 0.22, 'sawtooth', 0.11, 262);   // Eb4 sliding down to C4
+      tone(233, 0.24, 0.4, 'sawtooth', 0.13, 155); // Bb3 sagging to Eb3
+    },
     click: function () { tone(500, 0, 0.04, 'square', 0.05); },
     hit: function () { tone(220, 0, 0.12, 'square', 0.14, 70); noise(0.02, 0.15, 0.15); },
     extraLife: function () { tone(660, 0, 0.09, 'triangle', 0.12); tone(880, 0.09, 0.14, 'triangle', 0.12); },
+    // level clear: brassy trumpet fanfare (C-E-G-C arpeggio into a held chord)
     fanfare: function () {
-      tone(523, 0, 0.11, 'triangle', 0.13);
-      tone(659, 0.11, 0.11, 'triangle', 0.13);
-      tone(784, 0.22, 0.11, 'triangle', 0.13);
-      tone(1047, 0.33, 0.24, 'triangle', 0.15);
+      brass(523, 0, 0.12);
+      brass(659, 0.12, 0.12);
+      brass(784, 0.24, 0.12);
+      brass(1047, 0.36, 0.42, 0.13);
+      tone(659, 0.36, 0.42, 'sawtooth', 0.05); // chord body under the top note
+      tone(784, 0.36, 0.42, 'sawtooth', 0.05);
+    },
+    // session complete: the fanfare plus a triumphant tag
+    sessionFanfare: function () {
+      api.fanfare();
+      brass(784, 0.84, 0.12);
+      brass(1047, 0.96, 0.6, 0.14);
+      tone(1319, 0.96, 0.6, 'sawtooth', 0.05);
     },
     timeUp: function () { tone(392, 0, 0.15, 'triangle', 0.12); tone(262, 0.16, 0.3, 'triangle', 0.12); }
   };

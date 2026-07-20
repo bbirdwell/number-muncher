@@ -27,6 +27,8 @@
   var BASE_TROG_TICK_MS = 700;
   var MIN_TROG_TICK_MS = 350;
   var LIFE_POINTS = 1000;
+  var SESSION_LEVELS = 5;    // Classic is a 5-round session (playtest round 2)
+  var WANDER_CHANCE = 0.25;  // per-tick spontaneous turn — breaks perimeter orbits
 
   // ---------- rules ----------
 
@@ -269,6 +271,7 @@
       muncher: { cell: START_CELL, invulnMs: 0 },
       troggles: [],
       trogSeq: 0,
+      wanderChance: WANDER_CHANCE,
       trogTickMs: BASE_TROG_TICK_MS,
       trogAccMs: 0,
       pauseReasons: [], // decision 13: set of 'explanation' | 'manual' | 'hidden'
@@ -467,8 +470,14 @@
         refillCell(state, state.muncher.cell, rng);
       } else if (remainingMatches(state) === 0) {
         addScore(state, 50 * state.level);
-        state.screen = 'levelClear';
-        state.events.push({ type: 'levelClear' });
+        if (state.level >= SESSION_LEVELS) {
+          // 5-round session complete (playtest round 2): celebrate, then home
+          state.screen = 'sessionComplete';
+          state.events.push({ type: 'sessionComplete' });
+        } else {
+          state.screen = 'levelClear';
+          state.events.push({ type: 'levelClear' });
+        }
       }
     } else {
       state.session.wrong += 1;
@@ -540,6 +549,16 @@
       state.trogAccMs -= state.trogTickMs;
       for (var i = 0; i < state.troggles.length; i++) {
         var tr = state.troggles[i];
+        // Spontaneous wander: without this, the no-reverse bounce rule locks
+        // troggles onto the boundary ring forever (proven by simulation —
+        // along-wall travel never bounces, corners feed the next wall).
+        // state.wanderChance so deterministic movement tests can zero it.
+        if (rng() < state.wanderChance) {
+          var wopts = bounceDirs(tr.cell, tr.dir).filter(function (d) {
+            return !troggleAt(state, cellAt(cellCol(tr.cell) + d[0], cellRow(tr.cell) + d[1]));
+          });
+          if (wopts.length > 0) tr.dir = pick(rng, wopts);
+        }
         var col = cellCol(tr.cell) + tr.dir[0];
         var row = cellRow(tr.cell) + tr.dir[1];
         var offBoard = col < 0 || col >= COLS || row < 0 || row >= ROWS;
@@ -641,6 +660,11 @@
         break;
 
       case 'toTitle':
+        // quitting mid-run still records the score she earned (OV finding:
+        // a strong abandoned run must not vanish from the high scores)
+        if (state.screen === 'playing' && state.score > 0) {
+          state.events.push({ type: 'abandoned' });
+        }
         state.screen = 'title';
         state.pauseReasons = [];
         state.explain = null;
@@ -655,6 +679,7 @@
     INVULN_MS: INVULN_MS,
     WALK_STEP_MS: WALK_STEP_MS,
     BLITZ_MS: BLITZ_MS,
+    SESSION_LEVELS: SESSION_LEVELS,
     isMatch: isMatch,
     bracketingFacts: bracketingFacts,
     closestTable: closestTable,

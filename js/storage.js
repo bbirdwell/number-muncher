@@ -158,6 +158,22 @@
     return (entry && entry[mode]) || 0;
   }
 
+  // For the high-scores overlay: single tables in numeric order first, then
+  // multi-table combos alphabetically. Capped at 20 rows.
+  function listHighScores(data) {
+    var keys = Object.keys(data.highScores);
+    var singles = keys.filter(function (k) { return k.indexOf('+') === -1; })
+      .sort(function (a, b) { return Number(a) - Number(b); });
+    var combos = keys.filter(function (k) { return k.indexOf('+') !== -1; }).sort();
+    return singles.concat(combos).slice(0, 20).map(function (k) {
+      return {
+        key: k,
+        classic: data.highScores[k].classic || 0,
+        blitz: data.highScores[k].blitz || 0
+      };
+    }).filter(function (row) { return row.classic > 0 || row.blitz > 0; });
+  }
+
   // ---------- localStorage adapter (browser only) ----------
 
   function load() {
@@ -193,6 +209,7 @@
     selectionKey: selectionKey,
     updateHighScore: updateHighScore,
     highScoreFor: highScoreFor,
+    listHighScores: listHighScores,
     load: load,
     save: save
   };

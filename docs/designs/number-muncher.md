@@ -325,13 +325,43 @@ Outside voice (cross-model) on this round found 24 points; 6 became fixes
 folded above (muncher glide, head-on deadlock, blocked-bounce, anti-park,
 refill density 45%/floor-4, small-table cap tests). Tests: 45 passing.
 
+## Playtest Round 2 Changes (2026-07-20, eng-reviewed)
+
+R1. HOME button (🏠) in the HUD during play. It opens the pause card, which
+    gains a "Back to start" button (D2-A: accidental taps recoverable —
+    consistent with the round-1 pause-safety philosophy).
+R2. Classic is a 5-round SESSION (supersedes "endless" in Level progression):
+    clearing level 5 → sessionComplete screen (score, session accuracy,
+    session fanfare, confetti, high-score check) → Play again / Back to
+    start. Game over before round 5 unchanged. HUD shows "Round N/5".
+R3. Troggle wander: 25% chance per tick (state.wanderChance, zeroable in
+    tests) to turn to a random unoccupied in-bounds non-reverse direction.
+    Fixes a proven perimeter-orbit trap: the no-reverse bounce rule locked
+    troggles onto the boundary ring forever (simulation: 200/200 ticks on
+    the perimeter). Wall/blocked bounce logic unchanged.
+R4. Audio: correct munch = crunch + rising major chime (E5→B5); wrong munch
+    = descending sawtooth wah-womp; level clear = brassy layered fanfare;
+    session complete = fanfare + triumphant tag.
+R5. High scores: title-screen 🏆 button opens an overlay (view-local state,
+    not game state) listing per-selection best Classic and Blitz scores via
+    the pure `listHighScores` selector in storage.js (singles numeric-first,
+    combos after, cap 20, empty rows dropped; Escape/Enter closes).
+R6. (OV findings) High scores are now recorded on ALL run-ending paths:
+    sessionComplete (the winning path previously recorded nothing!),
+    gameOver, timeUp, and mid-run quit via home (`abandoned` event — earned
+    scores survive, no celebration).
+
+Outside voice: 17 findings, all resolved or folded (score-on-winning-path,
+abandoned-run scores, RNG-stream test isolation via state.wanderChance,
+card-visibility list, empty state, sort/cap, Escape-close). Tests: 49.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAN | 7 proposals, 6 accepted, 1 deferred |
 | Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | CLEAN | run 2 (playtest round): 5 changes root-caused, 24 OV points, 6 extra fixes, 45 tests |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 3 | CLEAN | run 3 (playtest round 2): 5 changes, 17 OV points folded, 49 tests |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 

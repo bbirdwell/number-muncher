@@ -25,6 +25,7 @@
     tables: [7],
     mode: 'classic',
     newHighScore: false,
+    showScores: false,
     chomp: 0
   };
 
@@ -64,6 +65,19 @@
           view.newHighScore = S.updateHighScore(data, state.rule.tables, 'classic', state.score);
           if (view.newHighScore) { persist(); A.fanfare(); R.confetti(); }
           break;
+        case 'sessionComplete':
+          // the WINNING path must record the score (OV finding: only
+          // gameOver did, so the best runs never reached the high scores)
+          view.newHighScore = S.updateHighScore(data, state.rule.tables, 'classic', state.score);
+          persist();
+          A.sessionFanfare();
+          R.confetti();
+          break;
+        case 'abandoned':
+          // quit mid-run via home: keep the earned score, no celebration
+          S.updateHighScore(data, state.rule.tables, state.mode, state.score);
+          persist();
+          break;
         case 'timeUp':
           view.newHighScore = S.updateHighScore(data, state.rule.tables, 'blitz', state.score);
           persist();
@@ -86,6 +100,15 @@
       if (state.screen !== 'playing') return;
       var manual = state.pauseReasons.indexOf('manual') !== -1;
       dispatch({ type: manual ? 'pauseRemove' : 'pauseAdd', reason: 'manual' });
+    },
+    onHome: function () { // 🏠 opens the pause card — exit is recoverable (D2-A)
+      if (state.screen !== 'playing') return;
+      dispatch({ type: 'pauseAdd', reason: 'manual' });
+    },
+    isScoresOpen: function () { return view.showScores; },
+    onShowScores: function (show) {
+      view.showScores = show;
+      R.render(state, data, view);
     },
     toggleMute: function () {
       data.muted = !data.muted;

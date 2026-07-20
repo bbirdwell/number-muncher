@@ -99,6 +99,18 @@ test('wrong munch of a non-product (44 has 4x11) vs a true non-product (43)', ()
 
 // ---- high scores keyed by sorted selection set ----
 
+test('listHighScores: singles numeric first, combos after, empty rows dropped', () => {
+  const data = S.defaultData();
+  S.updateHighScore(data, [12], 'classic', 50);
+  S.updateHighScore(data, [3], 'blitz', 80);
+  S.updateHighScore(data, [7, 8], 'classic', 120);
+  S.updateHighScore(data, [9], 'classic', 0); // zero score never persists a row
+  const rows = S.listHighScores(data);
+  assert.deepStrictEqual(rows.map((r) => r.key), ['3', '12', '7+8']);
+  assert.deepStrictEqual(rows[0], { key: '3', classic: 0, blitz: 80 });
+  assert.deepStrictEqual(S.listHighScores(S.defaultData()), [], 'empty store lists nothing');
+});
+
 test('high scores: selection-set keys, per mode, only improvements persist', () => {
   const data = S.defaultData();
   assert.strictEqual(S.selectionKey([8, 7]), '7+8');

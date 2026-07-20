@@ -135,7 +135,7 @@ test('extra life at each 1000-point boundary, one per boundary crossed', () => {
   // un-munch one correct cell to munch it as the last one
   state.board[0] = { n: 7, munched: false };
   munchAt(state, 0, rngFor(5));
-  assert.strictEqual(state.screen, 'levelClear');
+  assert.strictEqual(state.screen, 'sessionComplete'); // level 21 >= SESSION_LEVELS
   // 999 + 10 + 1050 = 2059 -> boundary 2 -> +2 lives
   assert.strictEqual(state.lives, 5);
   assert.ok(last !== -2); // silence unused warning
@@ -159,6 +159,7 @@ test('troggle spawn: edge cell, >=3 manhattan from muncher, inward heading', () 
 test('troggle bounces at a wall: random in-bounds turn, never straight reverse', () => {
   for (let seed = 0; seed < 50; seed++) {
     const state = startedState({ tables: [7], mode: 'classic' }, 7);
+    state.wanderChance = 0; // deterministic movement for this test
     state.muncher.cell = 0;
     state.troggles = [{ id: 99, cell: NM.cellAt(5, 2), dir: [1, 0] }]; // mid right edge, heading off
     tickMs(state, state.trogTickMs, rngFor(seed));
@@ -187,6 +188,7 @@ test('troggle schedule: level 1 monster-free, 2-4 one, 5+ two', () => {
 
 test('contact respawn produces a fresh troggle id (render keys sprites by id)', () => {
   const state = startedState({ tables: [7], mode: 'classic' }, 7);
+  state.wanderChance = 0;
   const mCell = state.muncher.cell;
   state.troggles = [{ id: 1, cell: mCell - 1, dir: [1, 0] }];
   state.trogSeq = 1;
@@ -197,6 +199,7 @@ test('contact respawn produces a fresh troggle id (render keys sprites by id)', 
 
 test('troggle contact: life lost, muncher respawns in place with invuln, troggle respawns', () => {
   const state = startedState({ tables: [7], mode: 'classic' }, 7);
+  state.wanderChance = 0;
   const mCell = state.muncher.cell;
   state.troggles = [{ cell: mCell - 1, dir: [1, 0] }]; // one step left, heading right
   tickMs(state, state.trogTickMs, rngFor(7));
@@ -208,6 +211,7 @@ test('troggle contact: life lost, muncher respawns in place with invuln, troggle
 
 test('contact while invulnerable does nothing', () => {
   const state = startedState({ tables: [7], mode: 'classic' }, 7);
+  state.wanderChance = 0;
   state.muncher.invulnMs = 5000; // outlasts the troggle tick
   const mCell = state.muncher.cell;
   state.troggles = [{ cell: mCell - 1, dir: [1, 0] }];
@@ -311,6 +315,7 @@ test('blitz anti-park: a forced-correct refill never lands under the muncher', (
 
 test('two troggles meeting head-on re-pick directions instead of freezing', () => {
   const state = startedState({ tables: [7], mode: 'classic' }, 7);
+  state.wanderChance = 0;
   state.muncher.cell = 0;
   state.muncher.invulnMs = 999999; // isolate movement from contact
   state.troggles = [
@@ -324,6 +329,48 @@ test('two troggles meeting head-on re-pick directions instead of freezing', () =
     positions.add(state.troggles[0].cell + '/' + state.troggles[1].cell);
   }
   assert.ok(positions.size > 1, 'the standoff breaks — troggles keep moving');
+});
+
+test('wander: a perimeter troggle escapes the ring (playtest round 2 fix)', () => {
+  const state = startedState({ tables: [7], mode: 'classic' }, 42);
+  state.muncher.cell = 14;
+  state.muncher.invulnMs = 1e9; // isolate movement from contact
+  state.troggles = [{ id: 1, cell: NM.cellAt(5, 2), dir: [1, 0] }];
+  const rng = rngFor(42);
+  let interior = 0;
+  for (let t = 0; t < 200; t++) {
+    NM.reduce(state, { type: 'tick', dt: state.trogTickMs }, rng);
+    const c = state.troggles[0].cell;
+    const col = NM.cellCol(c), row = NM.cellRow(c);
+    if (col > 0 && col < 5 && row > 0 && row < 4) interior++;
+  }
+  assert.ok(interior > 20, `troggle stuck on the perimeter (interior visits: ${interior})`);
+});
+
+test('classic session: clearing level 5 completes the session (playtest round 2)', () => {
+  const state = startedState({ tables: [7], mode: 'classic' }, 13);
+  state.level = NM.SESSION_LEVELS;
+  for (const c of state.board) if (NM.isMatch(state.rule, c.n)) c.munched = true;
+  state.board[0] = { n: 14, munched: false };
+  munchAt(state, 0, rngFor(13));
+  assert.strictEqual(state.screen, 'sessionComplete');
+  assert.ok(state.events.some((e) => e.type === 'sessionComplete'), 'event for fanfare + high score');
+  // nextLevel is a no-op from here; toTitle goes home
+  NM.reduce(state, { type: 'nextLevel' }, rngFor(13));
+  assert.strictEqual(state.screen, 'sessionComplete');
+  NM.reduce(state, { type: 'toTitle' }, rngFor(13));
+  assert.strictEqual(state.screen, 'title');
+});
+
+test('quitting mid-run emits abandoned so the earned score is recorded', () => {
+  const state = startedState({ tables: [7], mode: 'classic' }, 13);
+  state.score = 120;
+  NM.reduce(state, { type: 'toTitle' }, rngFor(13));
+  assert.ok(state.events.some((e) => e.type === 'abandoned'));
+  // a zero-score quit records nothing
+  const fresh = startedState({ tables: [7], mode: 'classic' }, 13);
+  NM.reduce(fresh, { type: 'toTitle' }, rngFor(13));
+  assert.ok(!fresh.events.some((e) => e.type === 'abandoned'));
 });
 
 test('seedBoard cap holds for the smallest and largest tables', () => {

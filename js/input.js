@@ -25,6 +25,13 @@
       var state = h.getState();
       var gameKeys = e.key === ' ' || KEY_DIRS[e.key];
 
+      // high-scores popup: Escape or Enter closes it
+      if (h.isScoresOpen() && (e.key === 'Escape' || e.key === 'Enter')) {
+        e.preventDefault();
+        h.onShowScores(false);
+        return;
+      }
+
       if (state.explain) {
         // any explicit keypress dismisses; swallow it completely
         e.preventDefault();
@@ -80,13 +87,19 @@
     });
 
     els.pauseBtn.addEventListener('click', h.togglePause);
+    els.homeBtn.addEventListener('click', h.onHome); // opens the pause card (D2-A)
     els.resumeBtn.addEventListener('click', h.togglePause);
+    els.pausedHomeBtn.addEventListener('click', function () { h.dispatch({ type: 'toTitle' }); });
     els.muteBtn.addEventListener('click', h.toggleMute);
     els.nextBtn.addEventListener('click', function () { h.dispatch({ type: 'nextLevel' }); });
     els.againBtn.addEventListener('click', function () { h.dispatch({ type: 'playAgain' }); });
     els.blitzAgainBtn.addEventListener('click', function () { h.dispatch({ type: 'playAgain' }); });
+    els.sessionAgainBtn.addEventListener('click', function () { h.dispatch({ type: 'playAgain' }); });
     els.titleBtn.addEventListener('click', function () { h.dispatch({ type: 'toTitle' }); });
     els.blitzTitleBtn.addEventListener('click', function () { h.dispatch({ type: 'toTitle' }); });
+    els.sessionHomeBtn.addEventListener('click', function () { h.dispatch({ type: 'toTitle' }); });
+    els.scoresBtn.addEventListener('click', function () { h.onShowScores(true); });
+    els.scoresCloseBtn.addEventListener('click', function () { h.onShowScores(false); });
 
     // Title screen controls
     els.tableGrid.addEventListener('click', function (e) {

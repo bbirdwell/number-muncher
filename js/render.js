@@ -47,7 +47,12 @@
     var timerBox = el('div', 'stat stat-timer', stats);
     el('span', 'stat-label', timerBox, 'Time');
     els.timer = el('span', 'stat-value', timerBox, '');
+    var roundBox = el('div', 'stat stat-round', stats);
+    el('span', 'stat-label', roundBox, 'Round');
+    els.round = el('span', 'stat-value', roundBox, '');
     var hudButtons = el('div', 'hud-buttons', hud);
+    els.homeBtn = button('icon-btn', hudButtons, '🏠');
+    els.homeBtn.setAttribute('aria-label', 'Home');
     els.pauseBtn = button('icon-btn', hudButtons, '⏸');
     els.pauseBtn.setAttribute('aria-label', 'Pause');
     els.muteBtn = button('icon-btn', hudButtons, '🔊');
@@ -97,6 +102,17 @@
     buildCard('paused', 'Paused', function (card) {
       el('p', '', card, 'Take your time.');
       els.resumeBtn = button('primary', card, 'Keep playing');
+      els.pausedHomeBtn = button('ghost', card, 'Back to start');
+    });
+    buildCard('sessionComplete', 'You did it!', function (card) {
+      els.sessionText = el('p', '', card, '');
+      els.sessionHigh = el('p', 'highscore-line', card, '');
+      els.sessionAgainBtn = button('primary', card, 'Play again');
+      els.sessionHomeBtn = button('ghost', card, 'Back to start');
+    });
+    buildCard('scores', 'High scores', function (card) {
+      els.scoresList = el('div', 'scores-list', card);
+      els.scoresCloseBtn = button('primary', card, 'Close');
     });
 
     els.confetti = el('div', 'confetti-layer', root);
@@ -164,6 +180,7 @@
 
     els.startBtn = button('primary start-btn', card, 'Play!');
     els.startHint = el('p', 'hint start-hint', card, '');
+    els.scoresBtn = button('ghost scores-btn', card, '🏆 High scores');
     if (ui && ui.isTouch) {
       el('p', 'hint', card, 'Tap a square to walk there. Tap MUNCH! to eat.');
     } else {
@@ -221,9 +238,12 @@
     els.timer.parentElement.classList.toggle('hidden', state.mode !== 'blitz');
     els.timer.parentElement.classList.toggle('timer-low', state.mode === 'blitz' && state.blitzMs < 10000);
     els.lives.parentElement.classList.toggle('hidden', state.mode !== 'classic');
+    els.round.textContent = state.level + '/' + NM.SESSION_LEVELS;
+    els.round.parentElement.classList.toggle('hidden', state.mode !== 'classic');
     els.muteBtn.textContent = data.muted ? '🔇' : '🔊';
     var inPlay = state.screen === 'playing';
     els.pauseBtn.classList.toggle('hidden', !inPlay);
+    els.homeBtn.classList.toggle('hidden', !inPlay);
 
     // Board cells
     for (var i = 0; i < cellEls.length; i++) {
@@ -271,14 +291,16 @@
 
     // Overlays
     var activeCard = null;
-    if (state.screen === 'title') activeCard = 'title';
+    if (state.screen === 'title') activeCard = view.showScores ? 'scores' : 'title';
     else if (state.explain) activeCard = 'explain';
     else if (state.screen === 'levelClear') activeCard = 'levelClear';
+    else if (state.screen === 'sessionComplete') activeCard = 'sessionComplete';
     else if (state.screen === 'gameOver') activeCard = 'gameOver';
     else if (state.screen === 'blitzResults') activeCard = 'blitzResults';
     else if (state.pauseReasons.indexOf('manual') !== -1) activeCard = 'paused';
     els.overlay.classList.toggle('hidden', !activeCard);
-    ['title', 'explain', 'levelClear', 'gameOver', 'blitzResults', 'paused'].forEach(function (name) {
+    ['title', 'explain', 'levelClear', 'gameOver', 'blitzResults', 'paused',
+     'sessionComplete', 'scores'].forEach(function (name) {
       els['card_' + name].classList.toggle('hidden', name !== activeCard);
     });
 
@@ -297,6 +319,32 @@
         ' munched ' + state.session.correct + ' in 60 seconds — score ' + state.score;
       els.blitzHigh.textContent = view.newHighScore ? 'New high score!' : '';
     }
+    if (activeCard === 'sessionComplete') {
+      var who = data.name ? data.name + ', you' : 'You';
+      els.sessionText.textContent = who + ' finished all ' + NM.SESSION_LEVELS +
+        ' rounds of the ' + state.rule.tables.join(' & ') + 's! Score ' +
+        state.score + ' · ' + sessionAccuracy(state) + '% right';
+      els.sessionHigh.textContent = view.newHighScore ? 'New high score!' : '';
+    }
+    if (activeCard === 'scores') renderScores(data);
+  }
+
+  function renderScores(data) {
+    var rows = globalThis.NMStorage.listHighScores(data);
+    els.scoresList.textContent = '';
+    if (rows.length === 0) {
+      el('p', 'hint', els.scoresList, 'No high scores yet — go munch!');
+      return;
+    }
+    rows.forEach(function (row) {
+      var line = el('div', 'score-row', els.scoresList);
+      var label = row.key.indexOf('+') === -1
+        ? 'Table ' + row.key
+        : 'Tables ' + row.key.split('+').join(' & ');
+      el('span', 'score-label', line, label);
+      el('span', 'score-value', line, row.classic ? 'Classic ' + row.classic : '—');
+      el('span', 'score-value', line, row.blitz ? 'Blitz ' + row.blitz : '—');
+    });
   }
 
   function sessionAccuracy(state) {
