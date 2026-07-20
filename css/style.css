@@ -228,6 +228,25 @@ button:focus-visible, input:focus-visible, .cell:focus-visible {
 
 .muncher.invuln { animation: blink 0.35s linear infinite; }
 
+.muncher-number {
+  position: absolute;
+  top: -6%;
+  right: -4%;
+  min-width: 34%;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ink-deep);
+  border: 2px solid var(--phosphor);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(0.65rem, 2vw, 0.9rem);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.muncher-number:empty { display: none; }
+
 @keyframes blink { 50% { opacity: 0.35; } }
 
 .troggle::before {
@@ -258,13 +277,13 @@ button:focus-visible, input:focus-visible, .cell:focus-visible {
 
 .troggle-eyes {
   position: absolute;
-  top: 30%;
-  left: 32%;
-  width: 13%;
-  height: 13%;
+  top: 28%;
+  left: 30%;
+  width: 17%;
+  height: 17%;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 180% 0 0 0 #fff;
+  box-shadow: 155% 0 0 0 #fff;
 }
 
 .troggle-eyes::before {

@@ -62,6 +62,8 @@
     els.muncher = el('div', 'muncher', els.board);
     el('div', 'muncher-eyes', els.muncher);
     el('div', 'muncher-mouth', els.muncher);
+    // the number the muncher is standing on — otherwise the sprite hides it
+    els.muncherNumber = el('div', 'muncher-number', els.muncher);
 
     // Touch munch button
     els.munchBtn = button('munch-btn', root, 'MUNCH!');
@@ -108,6 +110,7 @@
   function buildTitle(ui) {
     var card = el('div', 'card card-title', els.overlay);
     card.dataset.card = 'title';
+    els.card_title = card;
     els.titleHeading = el('h1', 'game-title', card, 'Number Muncher');
     el('p', 'tagline', card, 'Munch the multiples. Dodge the Troggle.');
 
@@ -222,6 +225,9 @@
     els.muncher.classList.add('color-' + (data.color || 'green'));
     positionSprite(els.muncher, state.muncher.cell);
     els.muncher.classList.toggle('invuln', state.muncher.invulnMs > 0);
+    var underMuncher = state.board[state.muncher.cell];
+    els.muncherNumber.textContent =
+      inPlay && underMuncher && !underMuncher.munched ? String(underMuncher.n) : '';
     if (view.chomp !== lastChomp) {
       lastChomp = view.chomp;
       els.muncher.classList.remove('chomp');
