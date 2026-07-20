@@ -122,7 +122,8 @@
   function seedBoard(rule, level, rng) {
     var tables = rule.tables;
     var maxTable = Math.max.apply(null, tables);
-    var maxVal = 12 * maxTable + 1;
+    // Hard cap (playtest change 3): nothing on the board exceeds 12×table.
+    var maxVal = 12 * maxTable;
 
     // 6..12 correct of 30 cells => always >=6 correct, >=40% incorrect (decision 1)
     var correctCount = randInt(rng, 6, 12);
@@ -159,9 +160,9 @@
       if (pool.length > 0 && rng() < 0.8) {
         values.push(pick(rng, pool));
       } else {
-        // 2b fallback: random non-matching in range (always exists: primes > 12)
+        // 2b fallback: random non-matching within the 12×table cap
         var v;
-        do { v = randInt(rng, 2, Math.max(maxVal, 149)); } while (isMatch(rule, v));
+        do { v = randInt(rng, 2, maxVal); } while (isMatch(rule, v));
         values.push(v);
       }
     }
@@ -215,11 +216,33 @@
     }
     var cell = edges.length ? pick(rng, edges) : 0;
     var dir = pick(rng, inwardDirs(cell)); // perpendicular-inward heading
-    return { cell: cell, dir: dir };
+    state.trogSeq += 1; // stable id: render keys sprites by it, never by index
+    return { id: state.trogSeq, cell: cell, dir: dir };
   }
 
+  // Level 1 is monster-free (playtest change 2): she learns the multiples
+  // before the monster is introduced. Then the original's ramp, shifted.
   function troggleCountFor(level) {
-    return level >= 4 ? 2 : 1;
+    if (level <= 1) return 0;
+    return level >= 5 ? 2 : 1;
+  }
+
+  // Bounce (playtest change D2): when the next step leaves the board, turn
+  // to a random in-bounds direction EXCLUDING the reverse of the current
+  // heading — a wandering patrol, not a ping-pong and never a teleport.
+  // A corner leaves exactly one option; a wall edge leaves two.
+  function bounceDirs(cell, dir) {
+    var all = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    var options = [];
+    for (var i = 0; i < all.length; i++) {
+      var d = all[i];
+      if (d[0] === -dir[0] && d[1] === -dir[1]) continue; // no straight reverse
+      var col = cellCol(cell) + d[0];
+      var row = cellRow(cell) + d[1];
+      if (col < 0 || col >= COLS || row < 0 || row >= ROWS) continue;
+      options.push(d);
+    }
+    return options;
   }
 
   function trogTickFor(level) {
@@ -245,6 +268,7 @@
       board: [],
       muncher: { cell: START_CELL, invulnMs: 0 },
       troggles: [],
+      trogSeq: 0,
       trogTickMs: BASE_TROG_TICK_MS,
       trogAccMs: 0,
       pauseReasons: [], // decision 13: set of 'explanation' | 'manual' | 'hidden'
@@ -374,6 +398,54 @@
     return path;
   }
 
+  function correctValue(state, rng) {
+    return weightedFactor(rng, state.level) * pick(rng, state.rule.tables);
+  }
+
+  function distractorValue(state, rng) {
+    var maxVal = 12 * Math.max.apply(null, state.rule.tables);
+    // near-miss: a correct product ±1; reject rule matches (decision 2a)
+    var n;
+    var guard = 0;
+    do {
+      n = correctValue(state, rng) + (rng() < 0.5 ? 1 : -1);
+      guard += 1;
+    } while ((isMatch(state.rule, n) || n < 2 || n > maxVal) && guard < 20);
+    if (isMatch(state.rule, n) || n < 2 || n > maxVal) {
+      do { n = randInt(rng, 2, maxVal); } while (isMatch(state.rule, n));
+    }
+    return n;
+  }
+
+  // Blitz-only (playtest change 4): a munched cell immediately gets a fresh
+  // number. ~45% correct (level-weighted factor), else a near-miss
+  // distractor; FORCED correct when fewer than 4 correct remain so the
+  // board is never barren. Anti-park rule: a forced correct never lands on
+  // the muncher's own cell — otherwise she could stand still and mash
+  // munch for the whole round; it converts a random other distractor cell
+  // instead. Values respect the 12×table cap.
+  function refillCell(state, cellIdx, rng) {
+    var forced = remainingMatches(state) < 4;
+    var makeCorrect = forced || rng() < 0.45;
+    if (makeCorrect && forced && cellIdx === state.muncher.cell) {
+      state.board[cellIdx] = { n: distractorValue(state, rng), munched: false };
+      var others = [];
+      for (var i = 0; i < state.board.length; i++) {
+        if (i !== cellIdx && !state.board[i].munched && !isMatch(state.rule, state.board[i].n)) {
+          others.push(i);
+        }
+      }
+      if (others.length > 0) {
+        state.board[pick(rng, others)] = { n: correctValue(state, rng), munched: false };
+      }
+      return;
+    }
+    state.board[cellIdx] = {
+      n: makeCorrect ? correctValue(state, rng) : distractorValue(state, rng),
+      munched: false
+    };
+  }
+
   function doMunch(state, rng) {
     var cell = state.board[state.muncher.cell];
     if (!cell || cell.munched) {
@@ -388,18 +460,15 @@
     if (correct) {
       cell.munched = true;
       state.session.correct += 1;
-      state.events.push({ type: 'munch', cell: state.muncher.cell });
+      state.events.push({ type: 'munch', cell: state.muncher.cell, n: cell.n });
       addScore(state, 10);
-      if (remainingMatches(state) === 0) {
-        if (state.mode === 'blitz') {
-          // decision: board reseeds immediately, timer keeps running
-          state.board = seedBoard(state.rule, state.level, rng);
-          state.events.push({ type: 'reseed' });
-        } else {
-          addScore(state, 50 * state.level);
-          state.screen = 'levelClear';
-          state.events.push({ type: 'levelClear' });
-        }
+      if (state.mode === 'blitz') {
+        // Playtest change 4: the munched cell refreshes instantly.
+        refillCell(state, state.muncher.cell, rng);
+      } else if (remainingMatches(state) === 0) {
+        addScore(state, 50 * state.level);
+        state.screen = 'levelClear';
+        state.events.push({ type: 'levelClear' });
       }
     } else {
       state.session.wrong += 1;
@@ -473,14 +542,29 @@
         var tr = state.troggles[i];
         var col = cellCol(tr.cell) + tr.dir[0];
         var row = cellRow(tr.cell) + tr.dir[1];
-        if (col < 0 || col >= COLS || row < 0 || row >= ROWS) {
-          // walked off the board: respawn per spawn rule
-          state.troggles[i] = spawnTroggle(state, rng);
-          continue;
+        var offBoard = col < 0 || col >= COLS || row < 0 || row >= ROWS;
+        if (offBoard || troggleAt(state, cellAt(col, row))) {
+          // bounce (wall) or blocked (other troggle): re-pick a random
+          // unoccupied in-bounds non-reverse direction. Without the blocked
+          // case, two troggles meeting head-on would freeze forever.
+          var options = bounceDirs(tr.cell, tr.dir).filter(function (d) {
+            return !troggleAt(state, cellAt(cellCol(tr.cell) + d[0], cellRow(tr.cell) + d[1]));
+          });
+          if (options.length === 0) {
+            // last resort: straight reverse, if free
+            var rc = cellCol(tr.cell) - tr.dir[0];
+            var rr = cellRow(tr.cell) - tr.dir[1];
+            if (rc >= 0 && rc < COLS && rr >= 0 && rr < ROWS &&
+                !troggleAt(state, cellAt(rc, rr))) {
+              options = [[-tr.dir[0], -tr.dir[1]]];
+            }
+          }
+          if (options.length === 0) continue; // truly boxed in: wait a tick
+          tr.dir = pick(rng, options);
+          col = cellCol(tr.cell) + tr.dir[0];
+          row = cellRow(tr.cell) + tr.dir[1];
         }
-        var destCell = cellAt(col, row);
-        if (troggleAt(state, destCell)) continue; // never co-occupy: wait
-        tr.cell = destCell;
+        tr.cell = cellAt(col, row);
         if (tr.cell === state.muncher.cell && state.muncher.invulnMs <= 0) {
           loseLife(state, rng, tr);
           if (state.screen !== 'playing') return;
@@ -582,6 +666,8 @@
     trogTickFor: trogTickFor,
     troggleCountFor: troggleCountFor,
     spawnTroggle: spawnTroggle,
+    bounceDirs: bounceDirs,
+    refillCell: refillCell,
     bfsPath: bfsPath,
     createState: createState,
     reduce: reduce,

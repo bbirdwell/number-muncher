@@ -295,6 +295,37 @@ button:focus-visible, input:focus-visible, .cell:focus-visible {
   box-shadow: 235% 0 0 0 var(--ink-deep);
 }
 
+.troggle.teleport, .muncher.teleport { transition: none; }
+
+/* munch wisp: the eaten number drifts up, grows, and fades like smoke */
+
+.wisp-holder {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: calc((100% - 16px) / 6);
+  height: calc((100% - 16px) / 5);
+  pointer-events: none;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wisp {
+  font-family: var(--mono);
+  font-size: clamp(1rem, 4.2vw, 1.6rem);
+  font-weight: 700;
+  color: var(--phosphor);
+  text-shadow: 0 0 10px rgba(124, 242, 156, 0.6);
+  animation: wisp-rise 0.7s ease-out forwards;
+}
+
+@keyframes wisp-rise {
+  0% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+  100% { transform: translateY(-130%) scale(1.7); opacity: 0; filter: blur(3px); }
+}
+
 /* ---------- Touch munch button ---------- */
 
 .munch-btn {

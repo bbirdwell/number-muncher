@@ -41,6 +41,7 @@
         case 'munch':
           view.chomp++;
           A.crunch();
+          R.wisp(e.cell, e.n);
           break;
         case 'wrong':
           view.chomp++;

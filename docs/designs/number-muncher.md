@@ -284,13 +284,54 @@ Seven milestones, each ending green (tests pass, game playable where applicable)
 7. **M7** — audio + visual polish + README + GitHub Pages deploy (once
    `gh auth` is restored).
 
+## Playtest Round 1 Changes (2026-07-19, eng-reviewed)
+
+First real playtest (she loves it). Five changes, each superseding earlier
+text where noted:
+
+P1. Troggle sprite identity: troggles carry a stable `id` (`state.trogSeq`);
+    the renderer keys sprite nodes by id, never array index, and suppresses
+    the movement transition on (re)spawn and on any muncher jump > 1 cell
+    (new level/restart). Root cause of the "erratic diagonal movement" bug:
+    index-keyed sprites + respawn array reordering + CSS transform
+    transitions gliding sprites across the board.
+P2. Troggle edge behavior: BOUNCE, not walk-off-respawn (supersedes the
+    walk-off rule in Accepted Scope and its mention anywhere else). At a
+    wall — or when blocked by another troggle (head-on standoffs must not
+    freeze) — the troggle turns to a random unoccupied in-bounds direction
+    excluding straight reverse; reverse is the last resort; boxed-in waits
+    one tick. Straight lines otherwise. A wandering patrol: no teleports
+    except contact-respawn (new id, rendered in place).
+P3. Troggle schedule (supersedes "one from level 1, second from level 4"):
+    level 1 = NO troggles (monster-free intro — she learns the multiples
+    first), levels 2–4 = 1, level 5+ = 2.
+P4. Number cap: every board value ≤ 12 × max selected table. (The code had
+    a hardcoded 149-ceiling fallback that leaked 116/130/139 onto a 7s
+    board; `maxVal` is now exactly `12 × maxTable` everywhere.)
+P5. Blitz instant refill (supersedes reseed-on-exhaustion): a munched cell
+    is refilled immediately — 45% correct (level-weighted), else near-miss
+    distractor; FORCED correct when fewer than 4 correct remain (floor 4).
+    Anti-park rule: a forced correct never lands on the muncher's own cell
+    (it converts a random other distractor cell) — otherwise standing still
+    and mashing munch would farm the whole round.
+P6. Munch wisp: on every correct munch the eaten number floats up, grows
+    ~1.7×, blurs and fades over 0.7s (transient node, removed on
+    animationend + timeout guard, skipped under prefers-reduced-motion).
+    The `munch` event carries the eaten value `n`. In blitz the wisp of the
+    old number overlaps the instantly-refilled new number by design — it
+    reads as "ate that one, here's the next."
+
+Outside voice (cross-model) on this round found 24 points; 6 became fixes
+folded above (muncher glide, head-on deadlock, blocked-bounce, anti-park,
+refill density 45%/floor-4, small-table cap tests). Tests: 45 passing.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAN | 7 proposals, 6 accepted, 1 deferred |
 | Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAN | 19 issues (3 review + 16 outside voice), all resolved |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | CLEAN | run 2 (playtest round): 5 changes root-caused, 24 OV points, 6 extra fixes, 45 tests |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 

@@ -9,8 +9,11 @@
   var NM = globalThis.NM;
   var els = {};
   var cellEls = [];
-  var trogEls = [];
+  var trogEls = {}; // keyed by troggle id — NEVER by array index: respawns
+                    // replace/reorder the array, and index-keyed sprites
+                    // glide across the board on their CSS transition
   var lastChomp = 0;
+  var lastMuncherCell = -1;
 
   function el(tag, className, parent, text) {
     var node = document.createElement(tag);
@@ -176,15 +179,31 @@
     node.style.transform = 'translate(' + (col * 100) + '%, ' + (row * 100) + '%)';
   }
 
-  function syncTroggleEls(count) {
-    while (trogEls.length < count) {
-      var tr = el('div', 'troggle', els.board);
-      el('div', 'troggle-eyes', tr);
-      trogEls.push(tr);
+  function syncTroggleEls(troggles) {
+    var seen = {};
+    for (var i = 0; i < troggles.length; i++) {
+      var tr = troggles[i];
+      seen[tr.id] = true;
+      var node = trogEls[tr.id];
+      if (!node) {
+        // new troggle: create and position with the transition suppressed,
+        // so a (re)spawn appears in place instead of gliding diagonally
+        node = el('div', 'troggle teleport', els.board);
+        el('div', 'troggle-eyes', node);
+        trogEls[tr.id] = node;
+        positionSprite(node, tr.cell);
+        void node.offsetWidth; // commit the untransitioned position
+        node.classList.remove('teleport');
+      } else {
+        positionSprite(node, tr.cell);
+      }
     }
-    for (var i = 0; i < trogEls.length; i++) {
-      trogEls[i].classList.toggle('hidden', i >= count);
-    }
+    Object.keys(trogEls).forEach(function (id) {
+      if (!seen[id]) {
+        trogEls[id].remove();
+        delete trogEls[id];
+      }
+    });
   }
 
   function starString(n) {
@@ -223,7 +242,18 @@
     els.muncher.classList.toggle('hidden', !inPlay && !state.explain);
     els.muncher.className = els.muncher.className.replace(/color-\w+/g, '').trim();
     els.muncher.classList.add('color-' + (data.color || 'green'));
-    positionSprite(els.muncher, state.muncher.cell);
+    // a jump of more than one cell is a board reset (new level / restart) —
+    // suppress the transition so the muncher doesn't glide diagonally
+    if (lastMuncherCell !== -1 &&
+        NM.manhattan(lastMuncherCell, state.muncher.cell) > 1) {
+      els.muncher.classList.add('teleport');
+      positionSprite(els.muncher, state.muncher.cell);
+      void els.muncher.offsetWidth;
+      els.muncher.classList.remove('teleport');
+    } else {
+      positionSprite(els.muncher, state.muncher.cell);
+    }
+    lastMuncherCell = state.muncher.cell;
     els.muncher.classList.toggle('invuln', state.muncher.invulnMs > 0);
     var underMuncher = state.board[state.muncher.cell];
     els.muncherNumber.textContent =
@@ -234,10 +264,7 @@
       void els.muncher.offsetWidth; // restart CSS animation
       els.muncher.classList.add('chomp');
     }
-    syncTroggleEls(inPlay ? state.troggles.length : 0);
-    for (var tIdx = 0; tIdx < state.troggles.length; tIdx++) {
-      positionSprite(trogEls[tIdx], state.troggles[tIdx].cell);
-    }
+    syncTroggleEls(inPlay ? state.troggles : []);
 
     // Touch munch button
     els.munchBtn.classList.toggle('hidden', !(view.isTouch && inPlay));
@@ -301,6 +328,19 @@
     els.startHint.textContent = view.tables.length === 0 ? 'Pick at least one table to play.' : '';
   }
 
+  // Munch wisp (playtest change 5): the munched number floats up, grows,
+  // and fades like dispersing smoke. Outer div carries the grid transform
+  // (so the keyframe animation on the inner span composes cleanly);
+  // removed on animationend.
+  function wisp(cell, n) {
+    if (globalThis.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var holder = el('div', 'wisp-holder', els.board);
+    positionSprite(holder, cell);
+    var span = el('span', 'wisp', holder, String(n));
+    span.addEventListener('animationend', function () { holder.remove(); });
+    setTimeout(function () { holder.remove(); }, 1500); // belt-and-braces cleanup
+  }
+
   // Celebration confetti — capped particle count (perf review note).
   function confetti() {
     if (globalThis.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -317,7 +357,7 @@
     }
   }
 
-  var api = { init: init, render: render, confetti: confetti, els: els, cellEls: cellEls };
+  var api = { init: init, render: render, confetti: confetti, wisp: wisp, els: els, cellEls: cellEls };
   globalThis.NMRender = api;
   if (typeof module !== 'undefined') module.exports = api;
 })();

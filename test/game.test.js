@@ -64,9 +64,10 @@ test('seedBoard: 1000-board invariants for single table', () => {
     assert.ok(correct >= 6, `seed ${seed}: only ${correct} correct`);
     assert.ok(30 - correct >= 12, `seed ${seed}: fewer than 40% incorrect`);
     // 2a: no distractor may match the rule — implied by the counts above,
-    // but assert per-cell that every number is a positive integer in range.
+    // but assert per-cell range including the 12×table cap (playtest change 3).
     for (const c of board) {
       assert.ok(Number.isInteger(c.n) && c.n >= 2, `seed ${seed}: bad cell ${c.n}`);
+      assert.ok(c.n <= 12 * 7, `seed ${seed}: ${c.n} exceeds 12×7`);
       assert.strictEqual(c.munched, false);
     }
   }
@@ -79,6 +80,7 @@ test('seedBoard: 2b fallback under all-tables selection still satisfies invarian
     const correct = board.filter((c) => NM.isMatch(rule, c.n)).length;
     assert.ok(correct >= 6, `seed ${seed}: only ${correct} correct`);
     assert.ok(30 - correct >= 12, `seed ${seed}: fewer than 40% incorrect`);
+    for (const c of board) assert.ok(c.n <= 144, `seed ${seed}: ${c.n} exceeds 12×12`);
   }
 });
 
@@ -90,13 +92,16 @@ test('seedBoard: same seed reproduces the same board (injectable RNG)', () => {
 
 // ---- (3) munch scoring, lives, extra-life ----
 
-test('correct munch scores 10 and marks the cell', () => {
+test('correct munch scores 10, marks the cell, and the event carries the value', () => {
   const state = startedState({ tables: [7], mode: 'classic' }, 5);
   const idx = findCell(state, true);
+  const value = state.board[idx].n;
   munchAt(state, idx, rngFor(5));
   assert.strictEqual(state.score, 10);
   assert.ok(state.board[idx].munched);
   assert.strictEqual(state.session.correct, 1);
+  const munchEvent = state.events.find((e) => e.type === 'munch');
+  assert.strictEqual(munchEvent.n, value, 'wisp animation needs the munched value');
 });
 
 test('wrong munch: lose a life, number stays, explanation opens and pauses', () => {
@@ -151,14 +156,43 @@ test('troggle spawn: edge cell, >=3 manhattan from muncher, inward heading', () 
   }
 });
 
-test('troggle walks off the board -> respawns per spawn rule', () => {
+test('troggle bounces at a wall: random in-bounds turn, never straight reverse', () => {
+  for (let seed = 0; seed < 50; seed++) {
+    const state = startedState({ tables: [7], mode: 'classic' }, 7);
+    state.muncher.cell = 0;
+    state.troggles = [{ id: 99, cell: NM.cellAt(5, 2), dir: [1, 0] }]; // mid right edge, heading off
+    tickMs(state, state.trogTickMs, rngFor(seed));
+    const tr = state.troggles[0];
+    assert.strictEqual(tr.id, 99, 'same troggle, no respawn');
+    assert.strictEqual(tr.dir[0], 0, 'turned along the wall, not reversed');
+    assert.strictEqual(NM.manhattan(tr.cell, NM.cellAt(5, 2)), 1, 'moved exactly one step');
+  }
+});
+
+test('troggle bounces in a corner: the single non-reverse option', () => {
+  const dirs = NM.bounceDirs(NM.cellAt(5, 0), [1, 0]); // top-right corner heading right
+  assert.deepStrictEqual(dirs, [[0, 1]], 'only down is available');
+  const dirs2 = NM.bounceDirs(NM.cellAt(0, 4), [0, 1]); // bottom-left heading down
+  assert.deepStrictEqual(dirs2, [[1, 0]], 'only right is available');
+});
+
+test('troggle schedule: level 1 monster-free, 2-4 one, 5+ two', () => {
+  assert.strictEqual(NM.troggleCountFor(1), 0);
+  assert.strictEqual(NM.troggleCountFor(2), 1);
+  assert.strictEqual(NM.troggleCountFor(4), 1);
+  assert.strictEqual(NM.troggleCountFor(5), 2);
   const state = startedState({ tables: [7], mode: 'classic' }, 7);
-  state.muncher.cell = NM.START_CELL;
-  state.troggles = [{ cell: NM.cellAt(5, 2), dir: [1, 0] }]; // heading off right edge
+  assert.strictEqual(state.troggles.length, 0, 'level 1 starts with no troggle');
+});
+
+test('contact respawn produces a fresh troggle id (render keys sprites by id)', () => {
+  const state = startedState({ tables: [7], mode: 'classic' }, 7);
+  const mCell = state.muncher.cell;
+  state.troggles = [{ id: 1, cell: mCell - 1, dir: [1, 0] }];
+  state.trogSeq = 1;
   tickMs(state, state.trogTickMs, rngFor(7));
-  assert.strictEqual(state.troggles.length, 1);
-  assert.ok(state.troggles[0].cell !== NM.cellAt(5, 2) + 1, 'not off-board');
-  assert.ok(NM.manhattan(state.troggles[0].cell, state.muncher.cell) >= 3);
+  assert.strictEqual(state.lives, 2);
+  assert.notStrictEqual(state.troggles[0].id, 1, 'respawned troggle has a new id');
 });
 
 test('troggle contact: life lost, muncher respawns in place with invuln, troggle respawns', () => {
@@ -229,17 +263,80 @@ test('blitz: timer clamps at 0; penalty to 0 ends round after dismissal', () => 
   assert.strictEqual(state.screen, 'blitzResults');
 });
 
-test('blitz: board reseeds immediately on exhaustion, timer keeps running', () => {
+test('blitz: munched cell refills instantly, timer untouched (playtest change 4)', () => {
   const state = startedState({ tables: [7], mode: 'blitz' }, 11);
-  // munch all but one correct cell directly
-  const correctCells = [];
-  state.board.forEach((c, i) => { if (NM.isMatch(state.rule, c.n)) correctCells.push(i); });
-  for (let i = 0; i < correctCells.length - 1; i++) state.board[correctCells[i]].munched = true;
+  const idx = findCell(state, true);
   const before = state.blitzMs;
-  munchAt(state, correctCells[correctCells.length - 1], rngFor(12));
-  const remaining = state.board.filter((c) => !c.munched && NM.isMatch(state.rule, c.n)).length;
-  assert.ok(remaining >= 6, 'board reseeded with fresh correct answers');
-  assert.strictEqual(state.blitzMs, before, 'timer untouched by reseed');
+  munchAt(state, idx, rngFor(12));
+  const cell = state.board[idx];
+  assert.strictEqual(cell.munched, false, 'cell refilled, not left empty');
+  assert.ok(cell.n >= 2 && cell.n <= 84, 'refill respects the 12×7 cap');
+  assert.strictEqual(state.blitzMs, before, 'timer untouched by refill');
+  assert.strictEqual(state.score, 10, 'munch still scored');
+});
+
+test('blitz refill floor: board never drops below 4 correct answers', () => {
+  const state = startedState({ tables: [7], mode: 'blitz' }, 11);
+  // drain the board down and keep munching correct answers 200 times
+  for (let i = 0; i < 200; i++) {
+    const idx = findCell(state, true);
+    assert.ok(idx !== -1, `iteration ${i}: a correct answer always exists`);
+    munchAt(state, idx, rngFor(1000 + i));
+    const correct = state.board.filter((c) => !c.munched && NM.isMatch(state.rule, c.n)).length;
+    assert.ok(correct >= 4, `iteration ${i}: only ${correct} correct remain`);
+    for (const c of state.board) assert.ok(c.n <= 84, `refill ${c.n} exceeds 12×7`);
+  }
+});
+
+test('blitz anti-park: a forced-correct refill never lands under the muncher', () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const state = startedState({ tables: [7], mode: 'blitz' }, seed);
+    // engineer the floor: exactly 4 correct on the board, one under the muncher
+    for (let i = 0; i < state.board.length; i++) {
+      state.board[i] = { n: 9 + (i % 3), munched: false }; // 9,10,11 — none multiples of 7
+    }
+    state.board[0] = { n: 7, munched: false };
+    state.board[1] = { n: 14, munched: false };
+    state.board[2] = { n: 21, munched: false };
+    state.muncher.cell = 15;
+    state.board[15] = { n: 28, munched: false };
+    state.troggles = [];
+    NM.reduce(state, { type: 'munch' }, rngFor(seed));
+    assert.ok(!NM.isMatch(state.rule, state.board[15].n),
+      `seed ${seed}: forced correct landed under the muncher (${state.board[15].n})`);
+    const correct = state.board.filter((c) => !c.munched && NM.isMatch(state.rule, c.n)).length;
+    assert.ok(correct >= 4, `seed ${seed}: floor not maintained (${correct})`);
+  }
+});
+
+test('two troggles meeting head-on re-pick directions instead of freezing', () => {
+  const state = startedState({ tables: [7], mode: 'classic' }, 7);
+  state.muncher.cell = 0;
+  state.muncher.invulnMs = 999999; // isolate movement from contact
+  state.troggles = [
+    { id: 1, cell: NM.cellAt(2, 2), dir: [1, 0] },
+    { id: 2, cell: NM.cellAt(3, 2), dir: [-1, 0] }
+  ];
+  const positions = new Set();
+  for (let t = 0; t < 10; t++) {
+    tickMs(state, state.trogTickMs, rngFor(70 + t));
+    assert.notStrictEqual(state.troggles[0].cell, state.troggles[1].cell, 'never co-occupy');
+    positions.add(state.troggles[0].cell + '/' + state.troggles[1].cell);
+  }
+  assert.ok(positions.size > 1, 'the standoff breaks — troggles keep moving');
+});
+
+test('seedBoard cap holds for the smallest and largest tables', () => {
+  for (const table of [2, 12]) {
+    for (let seed = 0; seed < 200; seed++) {
+      const board = NM.seedBoard({ tables: [table] }, 3, rngFor(seed));
+      const correct = board.filter((c) => NM.isMatch({ tables: [table] }, c.n)).length;
+      assert.ok(correct >= 6 && 30 - correct >= 12, `table ${table} seed ${seed}: bad mix`);
+      for (const c of board) {
+        assert.ok(c.n >= 2 && c.n <= 12 * table, `table ${table}: ${c.n} out of range`);
+      }
+    }
+  }
 });
 
 test('blitz: timeout moves to results', () => {
@@ -296,18 +393,18 @@ test('lives reach 0 via wrong munch -> game over after dismissal', () => {
   assert.strictEqual(state.screen, 'gameOver');
 });
 
-test('level clear -> nextLevel: level 4 gains a second troggle, tick speeds up', () => {
+test('level clear -> nextLevel: level 5 gains a second troggle, tick speeds up', () => {
   const state = startedState({ tables: [7], mode: 'classic' }, 13);
-  state.level = 3;
+  state.level = 4;
   for (const c of state.board) if (NM.isMatch(state.rule, c.n)) c.munched = true;
   state.board[0] = { n: 14, munched: false };
   munchAt(state, 0, rngFor(13));
   assert.strictEqual(state.screen, 'levelClear');
   NM.reduce(state, { type: 'nextLevel' }, rngFor(13));
-  assert.strictEqual(state.level, 4);
+  assert.strictEqual(state.level, 5);
   assert.strictEqual(state.screen, 'playing');
   assert.strictEqual(state.troggles.length, 2);
-  assert.strictEqual(state.trogTickMs, NM.trogTickFor(4));
+  assert.strictEqual(state.trogTickMs, NM.trogTickFor(5));
   assert.ok(state.trogTickMs < 700 && state.trogTickMs >= 350);
 });
 
